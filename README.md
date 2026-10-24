@@ -96,16 +96,33 @@ Before installing, make sure you have the following installed on your system:
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation & Setup
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/sahan-bus-tracking.git
+git clone https://github.com/thusaraka1/sahan-bus-tracking.git
 cd sahan-bus-tracking
 ```
 
-### 2. Backend Setup (Python)
+### ⚡ Option A: Automated 1-Click Setup (Recommended for External PCs)
+
+**Windows:**
+1. Run `install.bat` (automatically installs Python & Node dependencies, creates venv, sets up config)
+2. Run `run.bat` (starts backend + frontend simultaneously and opens `http://localhost:5173` in your browser!)
+
+**Linux / macOS:**
+```bash
+chmod +x install.sh run.sh
+./install.sh
+./run.sh
+```
+
+---
+
+### 🛠️ Option B: Manual Installation
+
+#### 2. Backend Setup (Python)
 
 ```bash
 # Navigate to backend directory
