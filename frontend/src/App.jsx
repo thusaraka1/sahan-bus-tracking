@@ -342,7 +342,7 @@ function ETAPanel({ bus, onClose, routes, onOpenChangeRoute }) {
           const confPercent = (pred.confidence * 100).toFixed(0);
           const confClass = pred.confidence >= 0.85 ? 'high' : pred.confidence >= 0.7 ? 'medium' : 'low';
           return (
-            <div key={pred.stop_id} className="eta-stop-item slide-up" style={{ animationDelay: `${idx * 60}ms` }}>
+            <div key={pred.stop_id} className="eta-stop-item">
               <div className="eta-stop-timeline">
                 <div className={`eta-stop-dot ${idx === 0 ? 'next' : ''}`} />
                 {idx < predictions.length - 1 && <div className="eta-stop-line" />}
@@ -377,6 +377,7 @@ function MapView({ buses, routes, selectedBus, onSelectBus, focusedRoute }) {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef({});
+  const markerMetaRef = useRef({});
   const routeLinesRef = useRef([]);
   const stopMarkersRef = useRef([]);
 
@@ -578,9 +579,24 @@ function MapView({ buses, routes, selectedBus, onSelectBus, focusedRoute }) {
         </div>
       `;
 
+      const prevMeta = markerMetaRef.current[busId];
+      const needsIconUpdate = !prevMeta ||
+        prevMeta.isMyBus !== isMyBus ||
+        prevMeta.isOffline !== isOffline ||
+        prevMeta.routeColor !== bus.route_color ||
+        Math.abs((prevMeta.heading || 0) - (bus.heading || 0)) >= 10;
+
       if (markersRef.current[busId]) {
         markersRef.current[busId].setLatLng([bus.latitude, bus.longitude]);
-        markersRef.current[busId].setIcon(busIcon);
+        if (needsIconUpdate) {
+          markersRef.current[busId].setIcon(busIcon);
+          markerMetaRef.current[busId] = {
+            isMyBus,
+            isOffline,
+            routeColor: bus.route_color,
+            heading: bus.heading,
+          };
+        }
         markersRef.current[busId].setPopupContent(popupContent);
       } else {
         const marker = L.marker([bus.latitude, bus.longitude], { icon: busIcon })
@@ -588,6 +604,12 @@ function MapView({ buses, routes, selectedBus, onSelectBus, focusedRoute }) {
           .on('click', () => onSelectBus(bus))
           .addTo(map);
         markersRef.current[busId] = marker;
+        markerMetaRef.current[busId] = {
+          isMyBus,
+          isOffline,
+          routeColor: bus.route_color,
+          heading: bus.heading,
+        };
       }
     });
 
@@ -596,6 +618,7 @@ function MapView({ buses, routes, selectedBus, onSelectBus, focusedRoute }) {
       if (!activeBusIds.has(id)) {
         map.removeLayer(markersRef.current[id]);
         delete markersRef.current[id];
+        delete markerMetaRef.current[id];
       }
     });
   }, [buses, onSelectBus]);
@@ -666,8 +689,28 @@ export default function App() {
         api.getHealth(),
         api.getAIMetrics().catch(() => null),
       ]);
-      setBuses(busData);
-      setRoutes(routeData);
+      setBuses(prev => {
+        if (!prev || prev.length === 0) return busData;
+        const map = new Map(prev.map(b => [b.id || b.bus_id, b]));
+        busData.forEach(nb => {
+          const id = nb.id || nb.bus_id;
+          if (!map.has(id)) {
+            map.set(id, nb);
+          } else {
+            const existing = map.get(id);
+            map.set(id, { ...existing, ...nb, latitude: existing.latitude || nb.latitude, longitude: existing.longitude || nb.longitude });
+          }
+        });
+        return Array.from(map.values());
+      });
+
+      setRoutes(prev => {
+        if (!prev || prev.length !== routeData.length) return routeData;
+        const prevSig = prev.map(r => `${r.id}:${r.stops?.length || 0}`).join('|');
+        const nextSig = routeData.map(r => `${r.id}:${r.stops?.length || 0}`).join('|');
+        return prevSig === nextSig ? prev : routeData;
+      });
+
       setHealth(healthData);
       if (metricsData) setAiMetrics(metricsData);
       setSimulatorRunning(healthData.simulator_running);
@@ -678,17 +721,9 @@ export default function App() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    if (document.body) {
-      document.body.scrollTop = 0;
-      document.body.scrollLeft = 0;
-    }
-    if (document.documentElement) {
-      document.documentElement.scrollTop = 0;
-      document.documentElement.scrollLeft = 0;
-    }
     fetchData();
-    // Poll every 3 seconds as a fallback
-    pollRef.current = setInterval(fetchData, 3000);
+    // Relaxed polling interval to prevent state thrashing
+    pollRef.current = setInterval(fetchData, 10000);
     return () => clearInterval(pollRef.current);
   }, [fetchData]);
 
@@ -817,15 +852,18 @@ export default function App() {
     }
   }, [buses, handleSelectBus]);
 
-  // Auto-select hardware bus on initial load
+  const hasAutoSelectedRef = useRef(false);
+
+  // Auto-select hardware bus on initial load once
   useEffect(() => {
-    if (!selectedBus && buses.length > 0) {
+    if (!hasAutoSelectedRef.current && buses.length > 0) {
       const hw = buses.find(b => b.is_hardware || !b.simulated || b.id === 'lee_bus_esp32_001');
       if (hw) {
+        hasAutoSelectedRef.current = true;
         handleSelectBus(hw);
       }
     }
-  }, [buses, selectedBus, handleSelectBus]);
+  }, [buses, handleSelectBus]);
 
   return (
     <div className="app-layout">
